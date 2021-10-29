@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import argparse
 import json
 import os
@@ -84,7 +84,7 @@ def initialize_configuration():
     auth_type = None
     change_token = 'y'
 
-    if os.path.isfile(CONFIGURATION_FILE): 
+    if os.path.isfile(CONFIGURATION_FILE):
         while True:
             change_token = input('Change API token/key (y/n): ')
             change_token = change_token.strip().lower()
@@ -92,7 +92,7 @@ def initialize_configuration():
                 break
         if change_token in {'n', 'no'}:
             auth_type = config['Cloudflare DDNS']['auth_type']
-    
+
     while not auth_type:
         auth_type_input = input('Use API token or API key to authenticate?\n'
                                 'See https://dash.cloudflare.com/profile/api-tokens for more info.\n'
@@ -153,6 +153,17 @@ def get_external_ip():
     print("All {} checked services did not return any external ip address. Please check your internet connection."
           .format(len(EXTERNAL_IP_QUERY_APIS)))
     return
+
+
+def get_internal_ip():
+    inet_finder = re.compile('^    inet ([0-9.]+)')
+    for line in subprocess.check_output(['ip', '-4', 'addr', 'show', 'wlp3s0']).decode('utf-8').split('\n'):
+        match = inet_finder.match(line)
+        if match is not None:
+            # Multiple address might be present, assuming the first one is the best
+            ip_addr = match.group(1)
+            return ip_addr
+
 
 
 def get_ipv6():
@@ -327,14 +338,22 @@ def main():
         else:
             raise RuntimeError('There was a problem with the configuration file {config_file}! '
                                'Try running cloudflare-ddns --configure'.format(config_file=CONFIGURATION_FILE))
+        internal_ip = get_internal_ip()
+        if internal_ip:
+            print('Found internal IPv4: "{}"'.format(str(internal_ip)))
+
         external_ip = get_external_ip()
         if external_ip:
             print('Found external IPv4: "{}"'.format(str(external_ip)))
+
+        ipv4 = internal_ip
+
         ipv6 = get_ipv6()
         if ipv6:
             print('Found external IPv6: "{}"'.format(str(ipv6)))
-        if not external_ip and not ipv6:
-            raise RuntimeError("Neither external IPv4 nor IPv6 found. Please check your internet connection.")
+
+        if not internal_ip and not external_ip and not ipv6:
+            raise RuntimeError("Neither IPv4 nor IPv6 found. Please check your internet connection.")
         try:
             domains = config['domains'].split(',')
         except KeyError:
@@ -343,10 +362,10 @@ def main():
 
         if not domains:
             raise RuntimeError("No domains found to update.")
-        
+
         print("Handling domains: {}.".format(domains))
         for domain in domains:
-            update_dns(domain, auth, external_ip, ipv6)
+            update_dns(domain, auth, ipv4, ipv6)
     else:
         print('No arguments passed; exiting.')
         print('Try cloudflare-ddns --help.')
